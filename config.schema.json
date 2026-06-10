@@ -62,12 +62,12 @@
               "description": "Fan speed to set when turned on (5–100% in 5% steps). Leave blank to keep the BedJet's last-used speed."
             },
             "defaultRuntimeHours": {
-              "title": "Runtime Hours (on every mode change)",
+              "title": "Runtime Hours (on every adjustment)",
               "type": "number",
               "minimum": 0.5,
               "maximum": 12,
               "multipleOf": 0.5,
-              "description": "Countdown timer sent to the BedJet whenever HomeKit sets a mode, overriding the unit's per-mode default runtime (e.g. 30 minutes for heat). The BedJet clamps mode-specific maximums itself (turbo stays short). Leave blank to keep the BedJet's own defaults."
+              "description": "Countdown timer sent to the BedJet whenever HomeKit sets a mode, temperature, or fan speed, overriding the unit's per-mode default runtime (e.g. 30 minutes for heat). 12 is the firmware maximum. Leave blank to keep the BedJet's own defaults."
             }
           }
         }

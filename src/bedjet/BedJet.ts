@@ -208,11 +208,29 @@ export class BedJet extends EventEmitter {
 
   async setTemperature(celsius: number): Promise<void> {
     await this._sendCommand(BedJetCommand.SET_TEMPERATURE, Math.round(celsius * 2));
+    await this._maybeExtendRuntime();
   }
 
   async setFanSpeed(percent: number): Promise<void> {
     const step = Math.max(0, Math.min(19, Math.round(percent / 5) - 1));
     await this._sendCommand(BedJetCommand.SET_FAN, step);
+    await this._maybeExtendRuntime();
+  }
+
+  // Adjustments don't reset the unit's countdown on their own — top it up so any
+  // interaction keeps the run going for the configured runtime.
+  private async _maybeExtendRuntime(): Promise<void> {
+    if (this.config.defaultRuntimeHours === undefined) {
+      return;
+    }
+    const mode = this._state.operatingMode;
+    if (mode === OperatingMode.STANDBY || mode === OperatingMode.WAIT) {
+      return;
+    }
+    const total = Math.max(0.5, Math.min(12, this.config.defaultRuntimeHours));
+    const hours = Math.floor(total);
+    const minutes = Math.round((total - hours) * 60);
+    await this._sendCommand(BedJetCommand.SET_RUNTIME, hours, minutes);
   }
 
   async setOperatingMode(mode: OperatingMode): Promise<void> {
