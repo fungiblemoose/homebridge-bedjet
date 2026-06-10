@@ -238,6 +238,17 @@ export class BedJetAccessory {
         await this.bedjet.setFanSpeed(config.defaultFanSpeed);
       }
     }
+
+    if (mode !== OperatingMode.STANDBY && config.defaultRuntimeHours !== undefined) {
+      // Mode button presses reset the unit's countdown to its per-mode default
+      // (e.g. 30 min for heat), so the runtime must be re-sent after every mode
+      // change — not just on turn-on. The BedJet clamps mode-specific maximums
+      // (turbo) itself.
+      const total = Math.max(0.5, Math.min(12, config.defaultRuntimeHours));
+      const hours = Math.floor(total);
+      const minutes = Math.round((total - hours) * 60);
+      await this.bedjet.setRuntimeRemaining(hours, minutes);
+    }
   }
 
   private _syncHomeKit(state: BedJetState): void {

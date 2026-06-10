@@ -123,6 +123,7 @@ For a dual-zone setup, add both units:
 | `name` | Yes | — | Display name in HomeKit |
 | `address` | Yes | — | BLE MAC address of your BedJet V3 |
 | `scanTimeout` | No | `30` | Seconds to wait for the device on connect |
+| `defaultRuntimeHours` | No | — | Runtime (0.5–12 h) sent on every mode change, overriding the unit's per-mode default countdown (e.g. 30 min for heat). Leave blank to keep the BedJet's own defaults. |
 
 ## Troubleshooting
 

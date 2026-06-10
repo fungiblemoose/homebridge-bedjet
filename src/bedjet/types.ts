@@ -29,6 +29,7 @@ export interface BedJetConfig {
   defaultMode?: DefaultMode; // mode to activate when turned on from HomeKit
   defaultTemperature?: number; // °F (values >43 treated as °F; ≤43 treated as °C for backward compat)
   defaultFanSpeed?: number;    // percent 5–100, applied on turn-on
+  defaultRuntimeHours?: number; // 0.5–12 hours, sent on every mode change to override the unit's per-mode default countdown
 }
 
 export const DEFAULT_STATE: BedJetState = {
