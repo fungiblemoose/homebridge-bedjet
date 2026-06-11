@@ -246,9 +246,12 @@ export class BedJet extends EventEmitter {
       clearTimeout(this.staleTimer);
     }
     this.staleTimer = setTimeout(() => {
-      this.log.warn(`[${this.config.name}] No notification received — marking disconnected`);
-      this._state = { ...this._state, isConnected: false };
-      this.emit('stateChange', this._state);
+      this.log.warn(`[${this.config.name}] No notification received — tearing down and reconnecting`);
+      // Route through the same teardown as a BlueZ disconnect event. Marking
+      // isConnected=false alone leaves a zombie: commandChar stays set, so
+      // _sendCommand never triggers a reconnect and every command fails with
+      // "DBusError: Not connected" until the process restarts.
+      this._onDisconnected();
     }, 65_000);
   }
 
