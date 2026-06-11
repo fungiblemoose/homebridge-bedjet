@@ -230,7 +230,7 @@ export class BedJet extends EventEmitter {
     const total = Math.max(0.5, Math.min(12, this.config.defaultRuntimeHours));
     const hours = Math.floor(total);
     const minutes = Math.round((total - hours) * 60);
-    await this._sendCommand(BedJetCommand.SET_RUNTIME, hours, minutes);
+    await this.setRuntimeRemaining(hours, minutes);
   }
 
   async setOperatingMode(mode: OperatingMode): Promise<void> {
@@ -246,7 +246,22 @@ export class BedJet extends EventEmitter {
   }
 
   async setRuntimeRemaining(hours: number, minutes: number): Promise<void> {
-    await this._sendCommand(BedJetCommand.SET_RUNTIME, hours, minutes);
+    // The firmware silently drops SET_RUNTIME it doesn't accept (out-of-range
+    // values, mid-transition writes on a flaky link) — verify against the
+    // unit's own notifications and retry rather than fire-and-forget.
+    const requested = hours * 60 + minutes;
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      await this._sendCommand(BedJetCommand.SET_RUNTIME, hours, minutes);
+      for (let i = 0; i < 8; i++) {
+        await new Promise(resolve => setTimeout(resolve, 500));
+        const got = this._state.hoursRemaining * 60 + this._state.minutesRemaining;
+        if (got >= requested - 5) {
+          this.log.info(`[${this.config.name}] Runtime confirmed: ${this._state.hoursRemaining}h${String(this._state.minutesRemaining).padStart(2, '0')}m`);
+          return;
+        }
+      }
+      this.log.warn(`[${this.config.name}] Runtime ${hours}h${minutes}m not confirmed (unit reports ${this._state.hoursRemaining}h${String(this._state.minutesRemaining).padStart(2, '0')}m), attempt ${attempt}/3`);
+    }
   }
 
   async setLed(on: boolean): Promise<void> {
