@@ -36,6 +36,8 @@ const TARGET_TO_MODE: Record<number, OperatingMode> = {
 export class BedJetAccessory {
   private readonly thermostatService: Service;
   private readonly fanService: Service;
+  private readonly ambientService: Service | null = null;
+  private readonly turboService: Service | null = null;
   private readonly bedjet: BedJet;
 
   // Debounce handles for setter commands
@@ -188,6 +190,34 @@ export class BedJetAccessory {
         }, 100);
       });
 
+    // Ambient temperature sensor (opt-in) — the unit reports bedside air temp
+    if (config.exposeAmbientSensor === true) {
+      this.ambientService = this.accessory.getServiceById(Service.TemperatureSensor, 'ambient')
+        ?? this.accessory.addService(Service.TemperatureSensor, `${safeName} Ambient`, 'ambient');
+      this.ambientService.getCharacteristic(Characteristic.CurrentTemperature)
+        .onGet(() => this.bedjet.state.ambientTemperature);
+    }
+
+    // Preheat switch (opt-in) — turbo mode; the unit time-limits it and the
+    // tile follows the unit's actual state
+    if (config.exposeTurboSwitch === true) {
+      this.turboService = this.accessory.getServiceById(Service.Switch, 'turbo')
+        ?? this.accessory.addService(Service.Switch, `${safeName} Preheat`, 'turbo');
+      this.turboService.getCharacteristic(Characteristic.On)
+        .onGet(() => this.bedjet.state.operatingMode === OperatingMode.TURBO)
+        .onSet((value: CharacteristicValue) => {
+          if (value) {
+            this._applyModeAndDefaults(OperatingMode.TURBO, false).catch(err =>
+              this.platform.log.error(`[${config.name}] preheat on failed: ${err}`),
+            );
+          } else if (this.bedjet.state.operatingMode === OperatingMode.TURBO) {
+            this.bedjet.setOperatingMode(OperatingMode.STANDBY).catch(err =>
+              this.platform.log.error(`[${config.name}] preheat off failed: ${err}`),
+            );
+          }
+        });
+    }
+
     // Create BLE client and wire up state change events
     this.bedjet = new BedJet(config, platform.log);
 
@@ -287,6 +317,13 @@ export class BedJetAccessory {
     // Clamp helper — keeps values within the bounds HomeKit expects
     const clamp = (val: number, min: number, max: number) =>
       Math.min(max, Math.max(min, val));
+
+    if (this.ambientService) {
+      this.ambientService.updateCharacteristic(Characteristic.CurrentTemperature, clamp(state.ambientTemperature, -270, 100));
+    }
+    if (this.turboService) {
+      this.turboService.updateCharacteristic(Characteristic.On, state.operatingMode === OperatingMode.TURBO);
+    }
 
     // BedJet V3 fixed range: 66°F–109°F = 19–43°C
     const minTemp = 19;

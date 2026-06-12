@@ -74,6 +74,18 @@
               "type": "boolean",
               "default": false,
               "description": "When HomeKit asks for Heat, automatically use Extended Heat for targets of 92°F or below (runs up to ~13h) and regular Heat above that (firmware caps runtime by temperature: ~4h at 93–97°F, 2h at 100°F, 1h at 104°F). Temperature changes that cross 92°F switch modes automatically."
+            },
+            "exposeAmbientSensor": {
+              "title": "Expose Ambient Temperature Sensor",
+              "type": "boolean",
+              "default": false,
+              "description": "Add a HomeKit temperature sensor showing the air temperature the BedJet measures at the bed — usable as an automation trigger."
+            },
+            "exposeTurboSwitch": {
+              "title": "Expose Preheat (Turbo) Switch",
+              "type": "boolean",
+              "default": false,
+              "description": "Add a HomeKit switch that starts turbo mode (a short maximum-heat blast). The unit time-limits turbo itself; the switch follows the unit's actual state."
             }
           }
         }

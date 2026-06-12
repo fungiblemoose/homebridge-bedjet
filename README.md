@@ -125,6 +125,8 @@ For a dual-zone setup, add both units:
 | `scanTimeout` | No | `30` | Seconds to wait for the device on connect |
 | `defaultRuntimeHours` | No | — | Runtime (0.5–12 h) sent on every mode, temperature, or fan-speed adjustment, overriding the unit's per-mode default countdown (e.g. 30 min for heat). 12 requests the firmware max for the current mode/temperature. Leave blank to keep the BedJet's own defaults. |
 | `smartHeat` | No | `false` | HomeKit "Heat" picks the longest-running heat mode for the target temp: Extended Heat for ≤92°F (~13 h max), regular Heat above (firmware caps ~4 h at 93–97°F, 2 h at 100°F, 1 h at 104°F). Crossing 92°F mid-run switches modes automatically. |
+| `exposeAmbientSensor` | No | `false` | Adds a temperature sensor with the air temp the unit measures at the bed. |
+| `exposeTurboSwitch` | No | `false` | Adds a "Preheat" switch that runs turbo (short max-heat blast); the tile follows the unit's actual state. |
 
 ## Troubleshooting
 
