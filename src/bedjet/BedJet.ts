@@ -35,6 +35,7 @@ export class BedJet extends EventEmitter {
   private bleDestroy: (() => void) | null = null;
   private commandChar: NodeBle.GattCharacteristic | null = null;
   private staleTimer: NodeJS.Timeout | null = null;
+  private writeQueue: Promise<void> | null = null;
 
   constructor(
     private readonly config: BedJetConfig,
@@ -197,13 +198,30 @@ export class BedJet extends EventEmitter {
       throw new Error(`[${this.config.name}] Not connected`);
     }
     const buf = Buffer.from([command, ...args]);
-    try {
-      // writeValueWithResponse = write with response, required for BedJet V3
-      await this.commandChar.writeValueWithResponse(buf);
-    } catch (err) {
-      this.log.error(`[${this.config.name}] Command 0x${command.toString(16)} failed: ${err}`);
-      throw err;
-    }
+    // Serialize writes — BlueZ rejects overlapping GATT operations with
+    // "In Progress", which silently dropped user commands (e.g. a fan-speed
+    // set racing a runtime write). Retry transient busy errors with backoff.
+    const run = async (): Promise<void> => {
+      for (let attempt = 1; ; attempt++) {
+        if (!this.commandChar) {
+          throw new Error(`[${this.config.name}] Not connected`);
+        }
+        try {
+          // writeValueWithResponse = write with response, required for BedJet V3
+          await this.commandChar.writeValueWithResponse(buf);
+          return;
+        } catch (err) {
+          if (attempt < 4 && String(err).includes('In Progress')) {
+            await new Promise(resolve => setTimeout(resolve, 300 * attempt));
+            continue;
+          }
+          this.log.error(`[${this.config.name}] Command 0x${command.toString(16)} failed: ${err}`);
+          throw err;
+        }
+      }
+    };
+    this.writeQueue = (this.writeQueue ?? Promise.resolve()).then(run, run);
+    return this.writeQueue;
   }
 
   async setTemperature(celsius: number): Promise<void> {
@@ -246,21 +264,40 @@ export class BedJet extends EventEmitter {
   }
 
   async setRuntimeRemaining(hours: number, minutes: number): Promise<void> {
-    // The firmware silently drops SET_RUNTIME it doesn't accept (out-of-range
-    // values, mid-transition writes on a flaky link) — verify against the
-    // unit's own notifications and retry rather than fire-and-forget.
+    // The firmware silently drops SET_RUNTIME it doesn't accept, and clamps it
+    // to a mode/temperature-dependent maximum (measured on a V3: cool 12h, heat
+    // at a high target temp 4h) — verify against the unit's own notifications
+    // rather than fire-and-forget. Success = countdown reached the request,
+    // rose past the pre-send baseline, or is stable across two attempts (the
+    // unit's hard cap).
     const requested = hours * 60 + minutes;
+    const baseline = this._state.hoursRemaining * 60 + this._state.minutesRemaining;
+    const fmtState = () => `${this._state.hoursRemaining}h${String(this._state.minutesRemaining).padStart(2, '0')}m`;
+    let prevGot = -1;
     for (let attempt = 1; attempt <= 3; attempt++) {
       await this._sendCommand(BedJetCommand.SET_RUNTIME, hours, minutes);
+      let got = 0;
       for (let i = 0; i < 8; i++) {
         await new Promise(resolve => setTimeout(resolve, 500));
-        const got = this._state.hoursRemaining * 60 + this._state.minutesRemaining;
+        got = this._state.hoursRemaining * 60 + this._state.minutesRemaining;
         if (got >= requested - 5) {
-          this.log.info(`[${this.config.name}] Runtime confirmed: ${this._state.hoursRemaining}h${String(this._state.minutesRemaining).padStart(2, '0')}m`);
+          this.log.info(`[${this.config.name}] Runtime confirmed: ${fmtState()}`);
+          return;
+        }
+        if (got > baseline + 5) {
+          this.log.info(`[${this.config.name}] Runtime set: ${fmtState()} (unit max for current mode/temp; requested ${hours}h${String(minutes).padStart(2, '0')}m)`);
           return;
         }
       }
-      this.log.warn(`[${this.config.name}] Runtime ${hours}h${minutes}m not confirmed (unit reports ${this._state.hoursRemaining}h${String(this._state.minutesRemaining).padStart(2, '0')}m), attempt ${attempt}/3`);
+      // Same readback twice in a row = the unit's hard cap, not a dropped
+      // command. (Baseline can be stale right after a mode switch, so the
+      // baseline check alone can't tell these apart.)
+      if (prevGot >= 0 && Math.abs(got - prevGot) <= 6) {
+        this.log.info(`[${this.config.name}] Runtime set: ${fmtState()} (unit max for current mode/temp; requested ${hours}h${String(minutes).padStart(2, '0')}m)`);
+        return;
+      }
+      prevGot = got;
+      this.log.warn(`[${this.config.name}] Runtime ${hours}h${minutes}m not confirmed (unit reports ${fmtState()}), attempt ${attempt}/3`);
     }
   }
 
