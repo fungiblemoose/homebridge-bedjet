@@ -30,6 +30,7 @@ export interface BedJetConfig {
   defaultTemperature?: number; // °F (values >43 treated as °F; ≤43 treated as °C for backward compat)
   defaultFanSpeed?: number;    // percent 5–100, applied on turn-on
   defaultRuntimeHours?: number; // 0.5–12 hours, sent on every mode change to override the unit's per-mode default countdown
+  smartHeat?: boolean;          // "Heat" picks the longest-running heat mode for the target temp (EXT_HT ≤92°F, else HEAT)
 }
 
 export const DEFAULT_STATE: BedJetState = {

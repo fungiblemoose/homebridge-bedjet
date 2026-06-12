@@ -100,7 +100,7 @@ export class BedJetAccessory {
           clearTimeout(this.tempDebounce);
         }
         this.tempDebounce = setTimeout(() => {
-          this.bedjet.setTemperature(value as number).catch(err =>
+          this._applyTemperature(value as number).catch(err =>
             this.platform.log.error(`[${config.name}] setTemperature failed: ${err}`),
           );
         }, 100);
@@ -131,6 +131,14 @@ export class BedJetAccessory {
             : TARGET_TO_MODE[val] ?? OperatingMode.HEAT;
         } else {
           mode = TARGET_TO_MODE[val] ?? OperatingMode.STANDBY;
+        }
+
+        // Smart heat (opt-in): "Heat" means the longest-running heat mode for
+        // the target temp. EXT_HT caps at 92°F but allows ~13h runs; HEAT above
+        // that scales down (4h/2h/1h at 93–97/100/104°F) in firmware.
+        if (config.smartHeat === true && (mode === OperatingMode.HEAT || mode === OperatingMode.EXTENDED_HEAT)) {
+          const t = this.pendingTemp ?? this.bedjet.state.targetTemperature;
+          mode = t <= 33.5 ? OperatingMode.EXTENDED_HEAT : OperatingMode.HEAT;
         }
 
         this._applyModeAndDefaults(mode, wasOff && turningOn).catch(err =>
@@ -199,6 +207,26 @@ export class BedJetAccessory {
   }
 
   /**
+   * Apply a target temperature. With smart heat enabled, a temp change that
+   * crosses the EXT_HT ceiling (92°F) switches between EXTENDED_HEAT and HEAT
+   * first — heat modes remember separate targets, so the temp is sent after
+   * the switch, and the mode change re-triggers the runtime top-up.
+   */
+  private async _applyTemperature(tempC: number): Promise<void> {
+    const { config } = this;
+    const cur = this.bedjet.state.operatingMode;
+    const heatFamily = cur === OperatingMode.HEAT || cur === OperatingMode.EXTENDED_HEAT;
+    if (config.smartHeat === true && heatFamily) {
+      const desired = tempC <= 33.5 ? OperatingMode.EXTENDED_HEAT : OperatingMode.HEAT;
+      if (desired !== cur) {
+        this.platform.log.info(`[${config.name}] Smart heat: switching to ${desired === OperatingMode.EXTENDED_HEAT ? 'extended heat' : 'heat'} for ${Math.round(tempC * 9 / 5 + 32)}°F`);
+        await this._applyModeAndDefaults(desired, false);
+      }
+    }
+    await this.bedjet.setTemperature(tempC);
+  }
+
+  /**
    * Set the operating mode, then optionally apply default temperature and fan
    * speed from config. applyDefaults=true when turning on from off.
    * applyMode=true when the mode itself should come from defaultMode config
@@ -246,7 +274,9 @@ export class BedJetAccessory {
       // (turbo) itself.
       const total = Math.max(0.5, Math.min(12, config.defaultRuntimeHours));
       const hours = Math.floor(total);
-      const minutes = Math.round((total - hours) * 60);
+      // 12h requests go out as 12h59 — EXT_HT's measured max; other modes
+      // clamp down to their own caps.
+      const minutes = total >= 12 ? 59 : Math.round((total - hours) * 60);
       await this.bedjet.setRuntimeRemaining(hours, minutes);
     }
   }

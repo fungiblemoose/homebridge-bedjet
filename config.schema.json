@@ -67,7 +67,13 @@
               "minimum": 0.5,
               "maximum": 12,
               "multipleOf": 0.5,
-              "description": "Countdown timer sent to the BedJet whenever HomeKit sets a mode, temperature, or fan speed, overriding the unit's per-mode default runtime (e.g. 30 minutes for heat). 12 is the firmware maximum. Leave blank to keep the BedJet's own defaults."
+              "description": "Countdown timer sent to the BedJet whenever HomeKit sets a mode, temperature, or fan speed, overriding the unit's per-mode default runtime (e.g. 30 minutes for heat). 12 requests the firmware maximum for the current mode/temperature. Leave blank to keep the BedJet's own defaults."
+            },
+            "smartHeat": {
+              "title": "Smart Heat (auto-pick heat mode by temperature)",
+              "type": "boolean",
+              "default": false,
+              "description": "When HomeKit asks for Heat, automatically use Extended Heat for targets of 92°F or below (runs up to ~13h) and regular Heat above that (firmware caps runtime by temperature: ~4h at 93–97°F, 2h at 100°F, 1h at 104°F). Temperature changes that cross 92°F switch modes automatically."
             }
           }
         }

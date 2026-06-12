@@ -247,7 +247,9 @@ export class BedJet extends EventEmitter {
     }
     const total = Math.max(0.5, Math.min(12, this.config.defaultRuntimeHours));
     const hours = Math.floor(total);
-    const minutes = Math.round((total - hours) * 60);
+    // 12h requests go out as 12h59 — EXT_HT's measured max; other modes clamp
+    // down to their own caps.
+    const minutes = total >= 12 ? 59 : Math.round((total - hours) * 60);
     await this.setRuntimeRemaining(hours, minutes);
   }
 
