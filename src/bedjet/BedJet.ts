@@ -2,6 +2,13 @@ import { EventEmitter } from 'events';
 import type { Logger } from 'homebridge';
 import NodeBle = require('node-ble');
 const { createBluetooth } = NodeBle;
+import { Variant } from 'dbus-next';
+
+// A connection that drops within this window of going Ready counts as
+// "short-lived"; this many in a row means the BlueZ controller is flapping and
+// needs a power-cycle, not just another reconnect.
+const SHORT_LIVED_MS = 15_000;
+const FLAP_THRESHOLD = 3;
 import {
   BEDJET3_SERVICE_UUID,
   BEDJET3_STATUS_UUID,
@@ -36,6 +43,10 @@ export class BedJet extends EventEmitter {
   private commandChar: NodeBle.GattCharacteristic | null = null;
   private staleTimer: NodeJS.Timeout | null = null;
   private writeQueue: Promise<void> | null = null;
+
+  private lastReadyAt = 0;
+  private shortLivedCount = 0;
+  private powerCycleNext = false;
 
   constructor(
     private readonly config: BedJetConfig,
@@ -77,6 +88,13 @@ export class BedJet extends EventEmitter {
 
     this.log.info(`[${this.config.name}] Getting Bluetooth adapter…`);
     const adapter = await bluetooth.defaultAdapter();
+
+    // If the controller was flapping, power-cycle it before trying again — a
+    // plain reconnect onto a wedged controller just flaps again.
+    if (this.powerCycleNext) {
+      this.powerCycleNext = false;
+      await this._powerCycleAdapter(adapter);
+    }
 
     if (!await adapter.isDiscovering()) {
       await adapter.startDiscovery();
@@ -135,6 +153,7 @@ export class BedJet extends EventEmitter {
     }
 
     this.reconnectAttempts = 0;
+    this.lastReadyAt = Date.now();
     this._state = { ...this._state, isConnected: true };
     this._resetStaleTimer();
 
@@ -334,11 +353,47 @@ export class BedJet extends EventEmitter {
       this.staleTimer = null;
     }
 
+    // Flap detection: a connection that dies almost immediately after going
+    // Ready, repeatedly, means the controller is wedged. After a few in a row,
+    // ask the next reconnect to power-cycle the adapter.
+    if (this.lastReadyAt > 0 && Date.now() - this.lastReadyAt < SHORT_LIVED_MS) {
+      this.shortLivedCount++;
+      if (this.shortLivedCount >= FLAP_THRESHOLD) {
+        this.log.warn(`[${this.config.name}] Connection flapping (${this.shortLivedCount} short-lived sessions) — will power-cycle the adapter on next reconnect`);
+        this.powerCycleNext = true;
+        this.shortLivedCount = 0;
+      }
+    } else {
+      this.shortLivedCount = 0;
+    }
+    this.lastReadyAt = 0;
+
     this._state = { ...this._state, isConnected: false };
     this.emit('disconnected');
     this.emit('stateChange', this._state);
 
     this._scheduleReconnect();
+  }
+
+  // Toggle the controller's Powered property off/on via BlueZ. node-ble has no
+  // setter, so this reaches the writable D-Bus property through its helper;
+  // fully defensive so an internals change degrades to a plain reconnect.
+  private async _powerCycleAdapter(adapter: NodeBle.Adapter): Promise<void> {
+    const helper = (adapter as unknown as { helper?: { set(prop: string, value: Variant): Promise<void> } }).helper;
+    if (!helper || typeof helper.set !== 'function') {
+      this.log.warn(`[${this.config.name}] Cannot power-cycle adapter (node-ble internals unavailable); reconnecting normally`);
+      return;
+    }
+    try {
+      this.log.info(`[${this.config.name}] Power-cycling Bluetooth adapter…`);
+      await helper.set('Powered', new Variant('b', false));
+      await new Promise(resolve => setTimeout(resolve, 2_000));
+      await helper.set('Powered', new Variant('b', true));
+      await new Promise(resolve => setTimeout(resolve, 2_000));
+      this.log.info(`[${this.config.name}] Adapter power-cycled`);
+    } catch (err) {
+      this.log.warn(`[${this.config.name}] Adapter power-cycle failed (${err}); reconnecting normally`);
+    }
   }
 
   private _scheduleReconnect(): void {

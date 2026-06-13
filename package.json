@@ -25,6 +25,7 @@
   },
   "dependencies": {
     "@homebridge/plugin-ui-utils": "^1.0.0",
+    "dbus-next": "^0.10.2",
     "node-ble": "^1.10.1"
   },
   "devDependencies": {
